@@ -11,9 +11,10 @@ import (
 type Kind string
 
 const (
-	KindArchPkg  Kind = "archpkg"
-	KindAppImage Kind = "appimage"
-	KindBuild    Kind = "build"
+	KindArchPkg    Kind = "archpkg"
+	KindAppImage   Kind = "appimage"
+	KindBuild      Kind = "build"
+	KindPacmanRepo Kind = "pacmanrepo"
 )
 
 type Entry struct {

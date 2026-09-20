@@ -13,8 +13,10 @@ import (
 	"github.com/rokiri/clap/internal/archpkg"
 	"github.com/rokiri/clap/internal/aur"
 	"github.com/rokiri/clap/internal/ghrelease"
+	"github.com/rokiri/clap/internal/pacmanrepo"
 	"github.com/rokiri/clap/internal/registry"
 	"github.com/rokiri/clap/internal/store"
+	"github.com/rokiri/clap/internal/sudoauth"
 )
 
 func Normalize(input string) (cloneURL, host, name string, err error) {
@@ -53,7 +55,7 @@ func githubOwnerRepo(cloneURL string) (string, string) {
 	return parts[0], parts[1]
 }
 
-func Install(rawURL, name, tag string) error {
+func Install(rawURL, name, tag string, addPacmanRepo bool) error {
 	cloneURL, host, inferredName, err := Normalize(rawURL)
 	if err != nil {
 		return err
@@ -69,8 +71,26 @@ func Install(rawURL, name, tag string) error {
 		if err != nil {
 			fmt.Printf("clap: could not fetch release info (%v), falling back to PKGBUILD-based build\n", err)
 		} else {
+			if repoName, hasFiles, ok := pacmanrepo.Detect(rel); ok {
+				filesNote := ""
+				if hasFiles {
+					filesNote = " + .files"
+				}
+				if !addPacmanRepo {
+					fmt.Printf("clap: release %s looks like a full pacman repo (found %s.db%s) — pass --add-pacman-repo to register it in pacman.conf instead of grabbing a single package; falling back to a one-off install for now\n", rel.TagName, repoName, filesNote)
+				} else {
+					fmt.Printf("clap: release %s looks like a full pacman repo (found %s.db%s) — registering it like a `pacman.conf` repo instead of grabbing a single package\n", rel.TagName, repoName, filesNote)
+					if err := sudoauth.Ensure(); err != nil {
+						return err
+					}
+					return installPacmanRepo(owner, repo, repoName, rel.TagName, rawURL, name)
+				}
+			}
 			if a := archpkg.FindAsset(rel); a != nil {
 				fmt.Printf("clap: found Arch package asset %q in release %s\n", a.Name, rel.TagName)
+				if err := sudoauth.Ensure(); err != nil {
+					return err
+				}
 				return installArchPkgAsset(a, rawURL, name, rel.TagName)
 			}
 			if a := appimage.FindAsset(rel); a != nil {
@@ -87,6 +107,17 @@ func Install(rawURL, name, tag string) error {
 	}
 
 	return pkgbuildFallback(cloneURL, name, tag)
+}
+
+func installPacmanRepo(owner, repo, repoName, tag, rawURL, pkgName string) error {
+	serverURL := pacmanrepo.ServerURL(owner, repo, tag)
+	if err := pacmanrepo.AddRepo(repoName, serverURL); err != nil {
+		return err
+	}
+	if err := pacmanrepo.SyncAndInstall(pkgName, false, true); err != nil {
+		return err
+	}
+	return registry.Record(registry.Entry{Name: pkgName, URL: rawURL, Tag: tag, Kind: registry.KindPacmanRepo, Path: repoName})
 }
 
 func installArchPkgAsset(a *ghrelease.Asset, rawURL, name, tag string) error {
@@ -133,6 +164,9 @@ func pkgbuildFallback(cloneURL, name, tag string) error {
 
 	if _, err := os.Stat(filepath.Join(buildDir, "PKGBUILD")); err == nil {
 		fmt.Println("clap: PKGBUILD found in repo, building with makepkg")
+		if err := sudoauth.Ensure(); err != nil {
+			return err
+		}
 		return buildWithMakepkg(buildDir, name)
 	}
 
@@ -210,7 +244,7 @@ func Upgrade() error {
 			continue
 		}
 		fmt.Printf("clap: upgrading %s: %s -> %s\n", name, e.Tag, rel.TagName)
-		if err := Install(e.URL, name, ""); err != nil {
+		if err := Install(e.URL, name, "", e.Kind == registry.KindPacmanRepo); err != nil {
 			return fmt.Errorf("upgrading %s: %w", name, err)
 		}
 		upgraded++
@@ -225,7 +259,7 @@ func Remove(name string) error {
 		return fmt.Errorf("%q is not tracked by clap's git-install registry", name)
 	}
 	switch e.Kind {
-	case registry.KindArchPkg:
+	case registry.KindArchPkg, registry.KindPacmanRepo:
 		if err := runCmd("", "sudo", "pacman", "-R", name); err != nil {
 			return fmt.Errorf("pacman -R failed: %w", err)
 		}

@@ -1,0 +1,8 @@
+/clap
+/clap-*
+build/
+pkg/
+src/
+*.pkg.tar.zst
+*.pkg.tar.xz
+checksums.txt

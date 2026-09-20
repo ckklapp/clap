@@ -150,6 +150,15 @@ Install flags:
   --arch=<goarch>
   --no-verify=true
   --lib=true
+  --add-pacman-repo=true   with --url: if the release looks like a full pacman repo
+                           (.db/.files + packages), register it in pacman.conf instead
+                           of doing a one-off single-package install
+
+AUR install flags:
+  --noconfirm=true             don't prompt (makepkg/pacman/cleanup all auto-answer)
+  --keep-tmp=true              don't auto-delete the build dir under ~/.clap/tmp when done
+  --clean-build-deps=<answer>  pre-answer the "remove build-only deps?" prompt:
+                                n/none, a/all, or a comma list of the numbers shown (e.g. 1,3)
 `)
 }
 
@@ -198,7 +207,7 @@ func cmdInstall(args []string) error {
 			})
 			return err
 		}
-		return gitinstall.Install(url, flags["name"], flags["tag"])
+		return gitinstall.Install(url, flags["name"], flags["tag"], flags["add-pacman-repo"] == "true")
 	}
 
 	var prov provider.Provider
@@ -225,7 +234,11 @@ func cmdInstall(args []string) error {
 	switch prov {
 	case provider.AUR:
 		pkgName := aur.ParsePackageName(pos[0])
-		return aur.Install(pkgName, &aur.InstallOptions{NoConfirm: flags["noconfirm"] == "true"})
+		return aur.Install(pkgName, &aur.InstallOptions{
+			NoConfirm:      flags["noconfirm"] == "true",
+			KeepTmp:        flags["keep-tmp"] == "true",
+			CleanBuildDeps: flags["clean-build-deps"],
+		})
 
 	case provider.Snap:
 		if !snap.Available() {

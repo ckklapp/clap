@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/rokiri/clap/internal/sudoauth"
 )
 
 func ParsePackageName(input string) string {
@@ -43,6 +45,9 @@ func Install(name string, classic bool) error {
 	if IsInstalled(name) {
 		fmt.Printf("clap: %s is already installed as a snap (use `clap upgrade` to update)\n", name)
 		return nil
+	}
+	if err := sudoauth.Ensure(); err != nil {
+		return err
 	}
 	args := []string{"install", name}
 	if classic {
