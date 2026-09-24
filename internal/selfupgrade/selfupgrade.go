@@ -15,7 +15,7 @@ import (
 )
 
 const selfOwner = "ckklapp"
-const selfRepo = "clappm"
+const selfRepo = "clap"
 
 func Upgrade() error {
 	fmt.Printf("clap: checking %s/%s for a newer clap...\n", selfOwner, selfRepo)
